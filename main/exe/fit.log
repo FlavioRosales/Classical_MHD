@@ -1,0 +1,44 @@
+
+
+*******************************************************************************
+Fri Dec 29 18:00:18 2023
+
+
+FIT:    data read from 'JeansQ/rho.x.asc' i 64
+        format = z
+BREAK: No data to fit
+
+*******************************************************************************
+Fri Dec 29 18:00:21 2023
+
+
+FIT:    data read from 'JeansQ/rho.x.asc' i 63
+        format = z
+        #datapoints = 64
+        residuals are weighted equally (unit weight)
+
+function used for fitting: rho(x)
+	rho(x) = rhoc * (1.0 + 0.091 * (x/rc)**2)**(-8)
+fitted parameters initialized with current variable values
+
+iter      chisq       delta/lim  lambda   rhoc          rc           
+   0 8.2239021209e-01   0.00e+00  1.09e-01    1.000000e+00   1.000000e+00
+  12 7.2336612143e-11  -2.99e-01  1.09e-12    1.110796e-05   1.154979e+01
+
+After 12 iterations the fit converged.
+final sum of squares of residuals : 7.23366e-11
+rel. change during last iteration : -2.98683e-06
+
+degrees of freedom    (FIT_NDF)                        : 62
+rms of residuals      (FIT_STDFIT) = sqrt(WSSR/ndf)    : 1.08015e-06
+variance of residuals (reduced chisquare) = WSSR/ndf   : 1.16672e-12
+
+Final set of parameters            Asymptotic Standard Error
+=======================            ==========================
+rhoc            = 1.1108e-05       +/- 4.061e-07    (3.656%)
+rc              = 11.5498          +/- 0.5027       (4.353%)
+
+correlation matrix of the fit parameters:
+                rhoc   rc     
+rhoc            1.000 
+rc             -0.595  1.000 
