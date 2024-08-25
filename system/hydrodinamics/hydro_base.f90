@@ -27,6 +27,7 @@ module hydro_base_lib
     procedure :: write_check_point
     procedure :: read_check_point
     procedure :: primitive_variables
+    procedure :: conservative_variables
     procedure :: numerical_flux
     procedure :: numerical_source
     procedure :: numerical_flux_derivatives
@@ -49,16 +50,19 @@ contains
     allocate(this%  vx(domain%Nx, domain%Ny, domain%Nz))
     allocate(this%  vy(domain%Nx, domain%Ny, domain%Nz))
     allocate(this%  vz(domain%Nx, domain%Ny, domain%Nz))
+    allocate(this%  Bx(domain%Nx, domain%Ny, domain%Nz))
+    allocate(this%  By(domain%Nx, domain%Ny, domain%Nz))
+    allocate(this%  Bz(domain%Nx, domain%Ny, domain%Nz))
     allocate(this%   e(domain%Nx, domain%Ny, domain%Nz))
     allocate(this%   p(domain%Nx, domain%Ny, domain%Nz))
     allocate(this%   V(domain%Nx, domain%Ny, domain%Nz))
 
-    allocate(this%    u(5, domain%Nx, domain%Ny, domain%Nz))
-    allocate(this%  u_p(5, domain%Nx, domain%Ny, domain%Nz))
-    allocate(this%   Fx(5, domain%Nx, domain%Ny, domain%Nz))
-    allocate(this%   Fy(5, domain%Nx, domain%Ny, domain%Nz))
-    allocate(this%   Fz(5, domain%Nx, domain%Ny, domain%Nz))
-    allocate(this%    S(5, domain%Nx, domain%Ny, domain%Nz))
+    allocate(this%    u(8, domain%Nx, domain%Ny, domain%Nz))
+    allocate(this%  u_p(8, domain%Nx, domain%Ny, domain%Nz))
+    allocate(this%   Fx(8, domain%Nx, domain%Ny, domain%Nz))
+    allocate(this%   Fy(8, domain%Nx, domain%Ny, domain%Nz))
+    allocate(this%   Fz(8, domain%Nx, domain%Ny, domain%Nz))
+    allocate(this%    S(8, domain%Nx, domain%Ny, domain%Nz))
 
   end subroutine hydro_memory
   !============================================================================!
@@ -126,8 +130,11 @@ contains
     this% vx = this%u(2,:,:,:) / this%u(1,:,:,:)
     this% vy = this%u(3,:,:,:) / this%u(1,:,:,:)
     this% vz = this%u(4,:,:,:) / this%u(1,:,:,:)
-    this%  e = this%u(5,:,:,:) / this%u(1,:,:,:) - half * (this%vx**2 + this%vy**2 + this%vz**2)
-
+    this% Bx = this%u(6,:,:,:) 
+    this% By = this%u(7,:,:,:) 
+    this% Bz = this%u(8,:,:,:) 
+    this%  e = this%u(5,:,:,:) / this%u(1,:,:,:) - half * (this%vx**2 + this%vy**2 + this%vz**2) &
+               - half*(this%Bx**2 + this%By**2 + this%Bz**2)
     if(this%EoS.eq.'ideal gas') then
       this%p = (this%gamma - one) * this%e * this%rho
     else if(this%EoS.eq.'poly') then
@@ -139,6 +146,22 @@ contains
     end if
 
   end subroutine primitive_variables
+  !============================================================================!
+  subroutine conservative_variables(this)
+    implicit none 
+    class(hydro_base), intent(in out) :: this 
+
+    this%u(1,:,:,:) = this%rho
+    this%u(2,:,:,:) = this%rho * this%vx
+    this%u(3,:,:,:) = this%rho * this%vy
+    this%u(4,:,:,:) = this%rho * this%vz
+    this%u(5,:,:,:) = this%e*this%rho + half*this%rho*(this%vx**2 + this%vy**2 + this%vz**2) &
+                      + half*(this%Bx**2 + this%By**2 + this%Bz**2)
+    this%u(6,:,:,:) = this%Bx
+    this%u(7,:,:,:) = this%By
+    this%u(8,:,:,:) = this%Bz
+
+  end subroutine conservative_variables
   !============================================================================!
   function rhs_hydro(this) result(rhs)
     use mpi_lib, only: transpose_y_to_x_real, transpose_z_to_y_real
