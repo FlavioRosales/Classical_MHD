@@ -8,9 +8,14 @@ module hydro_base_lib
   real(kind=8), parameter ::   pi = dacos(-1.0d0)
   complex(kind=8), parameter, private :: i_unreal = (0.0d0, 1.0d0)
 
-  real(kind=8), private :: rhoL, vxL, vyL, vzL, eL, pL, csL, HL, vL, SL, EtotL
-  real(kind=8), private :: rhoR, vxR, vyR, vzR, eR, pR, csR, HR, vR, SR, EtotR
-  real(kind=8), dimension(5) :: uL, uR
+  real(kind=8), private :: rhoL, vxL, vyL, vzL, eL, pL, BxL, ByL, BzL, BL, vL, BvL 
+  real(kind=8), private :: CaxL, CayL, CazL 
+  real(kind=8), private :: CfxL, CfyL, CfzL 
+  real(kind=8), private :: CsxL, CsyL, CszL  
+  real(kind=8), private :: rhoR, vxR, vyR, vzR, eR, pR, BxR, ByR, BzR, BR, vR, BvR
+  real(kind=8), private :: CaxR, CayR, CazR 
+  real(kind=8), private :: CfxR, CfyR, CfzR 
+  real(kind=8), private :: CsxR, CsyR, CszR 
 
   type, public :: hydro_base
 
@@ -167,7 +172,7 @@ contains
     use mpi_lib, only: transpose_y_to_x_real, transpose_z_to_y_real
     implicit none
     class(hydro_base), intent(in out) :: this
-    real(kind=8), dimension(5, domain%Nx, domain%Ny, domain%Nz) :: rhs
+    real(kind=8), dimension(8, domain%Nx, domain%Ny, domain%Nz) :: rhs
 
     call this%primitive_variables
     call this%numerical_source
@@ -268,12 +273,15 @@ contains
     implicit none
     class(hydro_base), intent(in out) :: this
     integer :: i, j, k
-    real(kind=8), dimension(5) :: lambdaL, lambdaR, FL, FR
+    real(kind=8), dimension(8) :: lambdaL, lambdaR, FL, FR, uL, uR
 
     this%rho = transpose_y_to_x(this%rho)
     this% vx = transpose_y_to_x(this% vx)
     this% vy = transpose_y_to_x(this% vy)
     this% vz = transpose_y_to_x(this% vz)
+    this% Bx = transpose_y_to_x(this% Bx)
+    this% By = transpose_y_to_x(this% By)
+    this% Bz = transpose_y_to_x(this% Bz)
     this%  e = transpose_y_to_x(this%  e)
 
     do i=1, domain%Nx
@@ -282,14 +290,63 @@ contains
 
           call this%reconstructor(i,j,k)
 
-          lambdaL = [vxL - csL, vxL, vxL, vxL, vxL + csL]
-          lambdaR = [vxR - csR, vxR, vxR, vxR, vxR + csR]
+          lambdaL = [vxL - CfxL, &
+          vxL - CaxL, &
+          vxL - CsxL, & 
+          vxL, & 
+          vxL, & 
+          vxL + CsxL, & 
+          vxL + CaxL, &
+          vxL + CfxL]
+
+          lambdaR = [vxR - CfxR, &
+          vxR - CaxR, &
+          vxR - CsxR, & 
+          vxR, & 
+          vxR, & 
+          vxR + CsxR, & 
+          vxR + CaxR, &
+          vxR + CfxR]
+
+          uL = [rhoL, &
+          rhoL*vxL, &
+          rhoL*vyL, &
+          rhoL*vzL, &
+          eL*rhoL + half*rhoL*vL + half*BL, &
+          BxL, & 
+          ByL, &
+          BzL]
+
+          uR = [rhoR, &
+          rhoR*vxR, &
+          rhoR*vyR, &
+          rhoR*vzR, &
+          eR*rhoR + half*rhoR*vR + half*BR, &
+          BxR, & 
+          ByR, &
+          BzR]
+
 
           SL = min(zero, minval(lambdaL), minval(lambdaR))
           SR = max(zero, maxval(lambdaL), maxval(lambdaR))
 
-          FL = [rhoL * vxL, rhoL * vxL * vxL + pL, rhoL * vxL * vyL, rhoL * vxL * vzL, vxL * (EtotL + pL)]
-          FR = [rhoR * vxR, rhoR * vxR * vxR + pR, rhoR * vxR * vyR, rhoR * vxR * vzR, vxR * (EtotR + pR)]
+          FL = [uL(2), &
+          uL(2) * vxL + pL + half*BL - BxL**2, &
+          uL(2) * vyL - BxL*ByL, & 
+          uL(2) * vzL - BxL*BzL, & 
+          vxL * (uL(5) + pL + half*BL) - BvL*BxL, &
+          zero, & 
+          ByL*vxL - BxL*vyL, &
+          BzL*vxL - BxL*vzL]
+
+          FR = [uR(2), &
+          uR(2) * vxR + pR + half*BR - BxR**2, &
+          uR(2) * vyR - BxR*ByR, & 
+          uR(2) * vzR - BxR*BzR, & 
+          vxR * (uR(5) + pR + half*BR) - BvR*BxR, &
+          zero, & 
+          ByR*vxR - BxR*vyR, &
+          BzR*vxR - BxR*vzR]
 
           if(SL.ne.SR) then
             this%Fx(:,i,j,k) = (SR * FL - SL * FR + SL * SR * (uR - uL)) / (SR - SL)
@@ -305,6 +362,9 @@ contains
     this% vx = transpose_y_to_x(this% vx)
     this% vy = transpose_y_to_x(this% vy)
     this% vz = transpose_y_to_x(this% vz)
+    this% Bx = transpose_y_to_x(this% Bx)
+    this% By = transpose_y_to_x(this% By)
+    this% Bz = transpose_y_to_x(this% Bz)
     this%  e = transpose_y_to_x(this%  e)
 
   end subroutine HLLE_x
@@ -314,12 +374,15 @@ contains
     implicit none
     class(hydro_base), intent(in out) :: this
     integer :: i, j, k
-    real(kind=8), dimension(5) :: lambdaL, lambdaR, FL, FR
+    real(kind=8), dimension(8) :: lambdaL, lambdaR, FL, FR, uL, uR
 
     this%rho = transpose_z_to_y(this%rho)
     this% vx = transpose_z_to_y(this% vx)
     this% vy = transpose_z_to_y(this% vy)
     this% vz = transpose_z_to_y(this% vz)
+    this% Bx = transpose_z_to_y(this% Bx)
+    this% By = transpose_z_to_y(this% By)
+    this% Bz = transpose_z_to_y(this% Bz)
     this%  e = transpose_z_to_y(this%  e)
 
     do i=1, domain%Nx
@@ -328,14 +391,63 @@ contains
 
           call this%reconstructor(i,j,k)
 
-          lambdaL = [vyL - csL, vyL, vyL, vyL, vyL + csL]
-          lambdaR = [vyR - csR, vyR, vyR, vyR, vyR + csR]
+          lambdaL = [vyL - CfyL, &
+          vyL - CayL, &
+          vyL - CsyL, & 
+          vyL, & 
+          vyL, & 
+          vyL + CsyL, & 
+          vyL + CayL, &
+          vyL + CfyL]
+
+          lambdaR = [vyR - CfyR, &
+          vyR - CayR, &
+          vyR - CsyR, & 
+          vyR, & 
+          vyR, & 
+          vyR + CsyR, & 
+          vyR + CayR, &
+          vyR + CfyR]
+
+          uL = [rhoL, &
+          rhoL*vxL, &
+          rhoL*vyL, &
+          rhoL*vzL, &
+          eL*rhoL + half*rhoL*vL + half*BL, &
+          BxL, & 
+          ByL, &
+          BzL]
+
+          uR = [rhoR, &
+          rhoR*vxR, &
+          rhoR*vyR, &
+          rhoR*vzR, &
+          eR*rhoR + half*rhoR*vR + half*BR, &
+          BxR, & 
+          ByR, &
+          BzR]
+
 
           SL = min(zero, minval(lambdaL), minval(lambdaR))
           SR = max(zero, maxval(lambdaL), maxval(lambdaR))
 
-          FL = [rhoL * vyL, rhoL * vyL * vxL, rhoL * vyL * vyL + pL, rhoL * vyL * vzL, vyL * (EtotL + pL)]
-          FR = [rhoR * vyR, rhoR * vyR * vxR, rhoR * vyR * vyR + pR, rhoR * vyR * vzR, vyR * (EtotR + pR)]
+          FL = [uL(3), &
+          uL(3) * vxL - ByL*BxL, &
+          uL(3) * vyL + pL + half*BL - ByL**2, & 
+          uL(3) * vzL - ByL*BzL, & 
+          vyL * (uL(5) + pL + half*BL) - BvL*ByL, &
+          BxL*vyL - ByL*vxL, &
+          zero, & 
+          BzL*vyL - ByL*vzL ]
+
+          FR = [uR(3), &
+          uR(3) * vxR - ByR*BxR, &
+          uR(3) * vyR + pR + half*BR - ByR**2, & 
+          uR(3) * vzR - ByR*BzR, & 
+          vyR * (uR(5) + pR + half*BR) - BvR*ByR, &
+          BxR*vyR - ByR*vxR, &
+          zero, & 
+          BzR*vyR - ByR*vzR ]
 
           if(SL.ne.SR) then
             this%Fy(:,i,j,k) = (SR * FL - SL * FR + SL * SR * (uR - uL)) / (SR - SL)
@@ -351,6 +463,9 @@ contains
     this% vx = transpose_z_to_y(this% vx)
     this% vy = transpose_z_to_y(this% vy)
     this% vz = transpose_z_to_y(this% vz)
+    this% Bx = transpose_z_to_y(this% Bx)
+    this% By = transpose_z_to_y(this% By)
+    this% Bz = transpose_z_to_y(this% Bz)
     this%  e = transpose_z_to_y(this%  e)
 
   end subroutine HLLE_y
@@ -367,14 +482,66 @@ contains
 
           call this%reconstructor(i,j,k)
 
-          lambdaL = [vzL - csL, vzL, vzL, vzL, vzL + csL]
-          lambdaR = [vzR - csR, vzR, vzR, vzR, vzR + csR]
+          lambdaL = [vzL - CfzL, &
+          vzL - CazL, &
+          vzL - CszL, & 
+          vzL, & 
+          vzL, & 
+          vzL + CszL, & 
+          vzL + CazL, &
+          vzL + CfzL]
+
+          lambdaR = [vzR - CfzR, &
+          vzR - CazR, &
+          vzR - CszR, & 
+          vzR, & 
+          vzR, & 
+          vzR + CszR, & 
+          vzR + CazR, &
+          vzR + CfzR]
+
+          uL = [rhoL, &
+          rhoL*vxL, &
+          rhoL*vyL, &
+          rhoL*vzL, &
+          eL*rhoL + half*rhoL*vL + half*BL, &
+          BxL, & 
+          ByL, &
+          BzL]
+
+          uR = [rhoR, &
+          rhoR*vxR, &
+          rhoR*vyR, &
+          rhoR*vzR, &
+          eR*rhoR + half*rhoR*vR + half*BR, &
+          BxR, & 
+          ByR, &
+          BzR]
+
 
           SL = min(zero, minval(lambdaL), minval(lambdaR))
           SR = max(zero, maxval(lambdaL), maxval(lambdaR))
 
-          FL = [rhoL * vzL, rhoL * vzL * vxL, rhoL * vzL * vyL, rhoL * vzL * vzL + pL, vzL * (EtotL + pL)]
-          FR = [rhoR * vzR, rhoR * vzR * vxR, rhoR * vzR * vyR, rhoR * vzR * vzR + pR, vzR * (EtotR + pR)]
+          FL = [uL(4), &
+          uL(4) * vxL - BzL*BxL, &
+          uL(4) * vyL - BzL*ByL, & 
+          uL(4) * vzL + pL + half*BL - BzL**2, & 
+          vzL * (uL(5) + pL + half*BL) - BvL*BzL, &
+          BxL*vzL - BzL*vxL, &
+          ByL*vzL - BzL*vyL, &
+          zero &
+          ]
+
+          FR = [uR(4), &
+          uR(4) * vxR - BzR*BxR, &
+          uR(4) * vyR - BzR*ByR, & 
+          uR(4) * vzR + pR + half*BR - BzR**2, & 
+          vzR * (uR(5) + pR + half*BR) - BvR*BzR, &
+          BxR*vzR - BzR*vxR, &
+          ByR*vzR - BzR*vyR, &
+          zero &
+          ]
+
 
           if(SL.ne.SR) then
             this%Fz(:,i,j,k) = (SR * FL - SL * FR + SL * SR * (uR - uL)) / (SR - SL)
@@ -401,6 +568,9 @@ contains
     this% vx = transpose_y_to_x_real(this% vx)
     this% vy = transpose_y_to_x_real(this% vy)
     this% vz = transpose_y_to_x_real(this% vz)
+    this% Bx = transpose_y_to_x_real(this% Bx)
+    this% By = transpose_y_to_x_real(this% By)
+    this% Bz = transpose_y_to_x_real(this% Bz)
     this%  e = transpose_y_to_x_real(this%  e)
 
     do i=1, domain%Nx
@@ -463,6 +633,9 @@ contains
     this% vx = transpose_y_to_x_real(this% vx)
     this% vy = transpose_y_to_x_real(this% vy)
     this% vz = transpose_y_to_x_real(this% vz)
+    this% Bx = transpose_y_to_x_real(this% Bx)
+    this% By = transpose_y_to_x_real(this% By)
+    this% Bz = transpose_y_to_x_real(this% Bz)
     this%  e = transpose_y_to_x_real(this%  e)
 
   end subroutine MARQUINA_x
@@ -480,6 +653,9 @@ contains
     this% vx = transpose_z_to_y_real(this% vx)
     this% vy = transpose_z_to_y_real(this% vy)
     this% vz = transpose_z_to_y_real(this% vz)
+    this% Bx = transpose_z_to_y_real(this% Bx)
+    this% By = transpose_z_to_y_real(this% By)
+    this% Bz = transpose_z_to_y_real(this% Bz)
     this%  e = transpose_z_to_y_real(this%  e)
 
     do i=1, domain%Nx
@@ -542,6 +718,9 @@ contains
     this% vx = transpose_z_to_y_real(this% vx)
     this% vy = transpose_z_to_y_real(this% vy)
     this% vz = transpose_z_to_y_real(this% vz)
+    this% Bx = transpose_z_to_y_real(this% Bx)
+    this% By = transpose_z_to_y_real(this% By)
+    this% Bz = transpose_z_to_y_real(this% Bz)
     this%  e = transpose_z_to_y_real(this%  e)
 
   end subroutine MARQUINA_y
@@ -615,6 +794,7 @@ contains
   subroutine reconstructor(this,i,j,k)
     implicit none
     class(hydro_base), intent(in out) :: this
+    real(kind=8) :: EpsL, EpsR, HtL, HtR
     integer, intent(in) :: i, j, k
 
     if(this%boundary.eq.'periodic') then
@@ -642,21 +822,52 @@ contains
       eL = zero
       eR = zero
     end if
-    ! total velocity square
-    vL = half * (vxL**2 + vyL**2 + vzL**2)
-    vR = half * (vxR**2 + vyR**2 + vzR**2)
-    ! total energy
-    EtotL = rhoL * (eL + vL)
-    EtotR = rhoR * (eR + vR)
-    ! Speed ​​of sound
-    csL = max(sqrt(this%gamma * pL / rhoL), zero)
-    csR = max(sqrt(this%gamma * pR / rhoR), zero)
-    ! total enthalpy
-    HL = max((EtotL + pL) / rhoL, zero)
-    HR = max((EtotR + pR) / rhoR, zero)
-    ! conservative variables
-    uL = [rhoL, rhoL * vxL, rhoL * vyL, rhoL * vzL, EtotL]
-    uR = [rhoR, rhoR * vxR, rhoR * vyR, rhoR * vzR, EtotR]
+
+    !B^2
+    BL = BxL**2 + ByL**2 + BzL**2
+    BR = BxR**2 + ByR**2 + BzR**2
+    !V^2
+    vL = vxL**2 + vyL**2 + vzL**2
+    vR = vxR**2 + vyR**2 + vzR**2
+    !B dot v
+    BvL = BxL*vxL + ByL*vyL + BzL*vzL
+    BvR = BxR*vxR + ByR*vyR + BzR*vzR
+    !Alfven velocities
+    CaxL = dsqrt((BxL)**2 / rhoL)
+    CaxR = dsqrt((BxR)**2 / rhoR)
+    CayL = dsqrt((ByL)**2 / rhoL)
+    CayR = dsqrt((ByR)**2 / rhoR)
+    CazL = dsqrt((BzL)**2 / rhoL)
+    CazR = dsqrt((BzR)**2 / rhoR)
+    ! Magnetosonic and acoustic velocities
+    HtL = (this%gamma*pL + BL)/rhoL
+    HtL = (this%gamma*pR + BR)/rhoR
+
+    EpsL = HtL**2  &
+           - 4.0d0*(this%gamma*pL*BxL**2)/rhoL**2
+    EpsR = HtR**2  &
+           - 4.0d0*(this%gamma*pR*BxR**2)/rhoR**2
+
+    CfxL = dsqrt(half*(HtL + dsqrt(EpsL)))
+    CSxL = dsqrt(half*(HtL - dsqrt(EpsL)))
+
+    EpsL = HtL**2  &
+    - 4.0d0*(this%gamma*pL*ByL**2)/rhoL**2
+    EpsR = HtR**2  &
+    - 4.0d0*(this%gamma*pR*ByR**2)/rhoR**2
+
+    CfyL = dsqrt(half*(HtL + dsqrt(EpsL)))
+    CSyL = dsqrt(half*(HtL - dsqrt(EpsL)))
+
+    EpsL = HtL**2  &
+    - 4.0d0*(this%gamma*pL*BzL**2)/rhoL**2
+    EpsR = HtR**2  &
+    - 4.0d0*(this%gamma*pR*BzR**2)/rhoR**2
+
+    CfzL = dsqrt(half*(HtL + dsqrt(EpsL)))
+    CSzL = dsqrt(half*(HtL - dsqrt(EpsL)))
+
+
 
   end subroutine reconstructor
   !============================================================================!
@@ -700,6 +911,30 @@ contains
       delta_minus = this%vz(i,j,k+1) - this%vz(i,j,k)
       delta_plus  = this%vz(i,j,k+2) - this%vz(i,j,k+1)
       vzR = this%vz(i,j,k+1) - half * delta(delta_minus, delta_plus)
+      ! x-axis Magnetic field
+      delta_minus = this%Bx(i,j,k) - this%Bx(i,j,k-1)
+      delta_plus  = this%Bx(i,j,k+1) - this%Bx(i,j,k)
+      BxL = this%Bx(i,j,k) + half * delta(delta_minus, delta_plus)
+
+      delta_minus = this%Bx(i,j,k+1) - this%Bx(i,j,k)
+      delta_plus  = this%Bx(i,j,k+2) - this%Bx(i,j,k+1)
+      BxR = this%Bx(i,j,k+1) - half * delta(delta_minus, delta_plus)
+      ! y-axis Magnetic field
+      delta_minus = this%By(i,j,k) - this%By(i,j,k-1)
+      delta_plus  = this%By(i,j,k+1) - this%By(i,j,k)
+      ByL = this%By(i,j,k) + half * delta(delta_minus, delta_plus)
+
+      delta_minus = this%By(i,j,k+1) - this%By(i,j,k)
+      delta_plus  = this%By(i,j,k+2) - this%By(i,j,k+1)
+      ByR = this%By(i,j,k+1) - half * delta(delta_minus, delta_plus)
+      ! z-axis Magnetic field
+      delta_minus = this%Bz(i,j,k) - this%Bz(i,j,k-1)
+      delta_plus  = this%Bz(i,j,k+1) - this%Bz(i,j,k)
+      BzL = this%Bz(i,j,k) + half * delta(delta_minus, delta_plus)
+
+      delta_minus = this%Bz(i,j,k+1) - this%Bz(i,j,k)
+      delta_plus  = this%Bz(i,j,k+2) - this%Bz(i,j,k+1)
+      BzR = this%Bz(i,j,k+1) - half * delta(delta_minus, delta_plus)
       ! energy
       delta_minus = this%e(i,j,k) - this%e(i,j,k-1)
       delta_plus  = this%e(i,j,k+1) - this%e(i,j,k)
@@ -743,6 +978,30 @@ contains
       delta_minus = this%vz(i,j,k+1) - this%vz(i,j,k)
       delta_plus  = this%vz(i,j,k+2) - this%vz(i,j,k+1)
       vzR = this%vz(i,j,k+1) - half * delta(delta_minus, delta_plus)
+      ! x-axis Magnetic field
+      delta_minus = this%Bx(i,j,k) - this%Bx(i,j,domain%Nz)
+      delta_plus  = this%Bx(i,j,k+1) - this%Bx(i,j,k)
+      BxL = this%Bx(i,j,k) + half * delta(delta_minus, delta_plus)
+
+      delta_minus = this%Bx(i,j,k+1) - this%Bx(i,j,k)
+      delta_plus  = this%Bx(i,j,k+2) - this%Bx(i,j,k+1)
+      BxR = this%Bx(i,j,k+1) - half * delta(delta_minus, delta_plus)
+      ! y-axis Magnetic field
+      delta_minus = this%By(i,j,k) - this%By(i,j,domain%Nz)
+      delta_plus  = this%By(i,j,k+1) - this%By(i,j,k)
+      ByL = this%By(i,j,k) + half * delta(delta_minus, delta_plus)
+
+      delta_minus = this%By(i,j,k+1) - this%By(i,j,k)
+      delta_plus  = this%By(i,j,k+2) - this%By(i,j,k+1)
+      ByR = this%By(i,j,k+1) - half * delta(delta_minus, delta_plus)
+      ! z-axis Magnetic field
+      delta_minus = this%Bz(i,j,k) - this%Bz(i,j,domain%Nz)
+      delta_plus  = this%Bz(i,j,k+1) - this%Bz(i,j,k)
+      BzL = this%Bz(i,j,k) + half * delta(delta_minus, delta_plus)
+
+      delta_minus = this%Bz(i,j,k+1) - this%Bz(i,j,k)
+      delta_plus  = this%Bz(i,j,k+2) - this%Bz(i,j,k+1)
+      BzR = this%Bz(i,j,k+1) - half * delta(delta_minus, delta_plus)
       ! energy
       delta_minus = this%e(i,j,k) - this%e(i,j,domain%Nz)
       delta_plus  = this%e(i,j,k+1) - this%e(i,j,k)
@@ -786,6 +1045,30 @@ contains
       delta_minus = this%vz(i,j,k+1) - this%vz(i,j,k)
       delta_plus  = this%vz(i,j,1) - this%vz(i,j,k+1)
       vzR = this%vz(i,j,k+1) - half * delta(delta_minus, delta_plus)
+      ! x-axis Magnetic field
+      delta_minus = this%Bx(i,j,k) - this%Bx(i,j,k-1)
+      delta_plus  = this%Bx(i,j,k+1) - this%Bx(i,j,k)
+      BxL = this%Bx(i,j,k) + half * delta(delta_minus, delta_plus)
+
+      delta_minus = this%Bx(i,j,k+1) - this%Bx(i,j,k)
+      delta_plus  = this%Bx(i,j,1) - this%Bx(i,j,k+1)
+      BxR = this%Bx(i,j,k+1) - half * delta(delta_minus, delta_plus)
+      ! y-axis Magnetic field
+      delta_minus = this%By(i,j,k) - this%By(i,j,k-1)
+      delta_plus  = this%By(i,j,k+1) - this%By(i,j,k)
+      ByL = this%By(i,j,k) + half * delta(delta_minus, delta_plus)
+
+      delta_minus = this%By(i,j,k+1) - this%By(i,j,k)
+      delta_plus  = this%By(i,j,1) - this%By(i,j,k+1)
+      ByR = this%By(i,j,k+1) - half * delta(delta_minus, delta_plus)
+      ! z-axis Magnetic field
+      delta_minus = this%Bz(i,j,k) - this%Bz(i,j,k-1)
+      delta_plus  = this%Bz(i,j,k+1) - this%Bz(i,j,k)
+      BzL = this%Bz(i,j,k) + half * delta(delta_minus, delta_plus)
+
+      delta_minus = this%Bz(i,j,k+1) - this%Bz(i,j,k)
+      delta_plus  = this%Bz(i,j,1) - this%Bz(i,j,k+1)
+      BzR = this%Bz(i,j,k+1) - half * delta(delta_minus, delta_plus)
       ! energy
       delta_minus = this%e(i,j,k) - this%e(i,j,k-1)
       delta_plus  = this%e(i,j,k+1) - this%e(i,j,k)
@@ -829,6 +1112,30 @@ contains
       delta_minus = this%vz(i,j,1) - this%vz(i,j,k)
       delta_plus  = this%vz(i,j,2) - this%vz(i,j,1)
       vzR = this%vz(i,j,2) - half * delta(delta_minus, delta_plus)
+      ! x-axis Magnetic Field
+      delta_minus = this%Bx(i,j,k) - this%Bx(i,j,k-1)
+      delta_plus  = this%Bx(i,j,1) - this%Bx(i,j,k)
+      BxL = this%Bx(i,j,k) + half * delta(delta_minus, delta_plus)
+
+      delta_minus = this%Bx(i,j,1) - this%Bx(i,j,k)
+      delta_plus  = this%Bx(i,j,2) - this%Bx(i,j,1)
+      BxR = this%Bx(i,j,2) - half * delta(delta_minus, delta_plus)
+      ! y-axis Magnetic Field
+      delta_minus = this%By(i,j,k) - this%By(i,j,k-1)
+      delta_plus  = this%By(i,j,1) - this%By(i,j,k)
+      ByL = this%By(i,j,k) + half * delta(delta_minus, delta_plus)
+
+      delta_minus = this%By(i,j,1) - this%By(i,j,k)
+      delta_plus  = this%By(i,j,2) - this%By(i,j,1)
+      ByR = this%By(i,j,1) - half * delta(delta_minus, delta_plus)
+      ! z-axis Magnetic Field
+      delta_minus = this%Bz(i,j,k) - this%Bz(i,j,k-1)
+      delta_plus  = this%Bz(i,j,1) - this%Bz(i,j,k)
+      BzL = this%Bz(i,j,k) + half * delta(delta_minus, delta_plus)
+
+      delta_minus = this%Bz(i,j,1) - this%Bz(i,j,k)
+      delta_plus  = this%Bz(i,j,2) - this%Bz(i,j,1)
+      BzR = this%Bz(i,j,2) - half * delta(delta_minus, delta_plus)
       ! energy
       delta_minus = this%e(i,j,k) - this%e(i,j,k-1)
       delta_plus  = this%e(i,j,1) - this%e(i,j,k)
@@ -883,6 +1190,30 @@ contains
     delta_minus = this%vz(i,j,k0+1) - this%vz(i,j,k0)
     delta_plus  = this%vz(i,j,k0+2) - this%vz(i,j,k0+1)
     vzR = this%vz(i,j,k0+1) - half * delta(delta_minus, delta_plus)
+    ! x-axis Magnetic Field
+    delta_minus = this%Bx(i,j,k0) - this%Bx(i,j,k0-1)
+    delta_plus  = this%Bx(i,j,k0+1) - this%Bx(i,j,k0)
+    BxL = this%Bx(i,j,k0) + half * delta(delta_minus, delta_plus)
+
+    delta_minus = this%Bx(i,j,k0+1) - this%Bx(i,j,k0)
+    delta_plus  = this%Bx(i,j,k0+2) - this%Bx(i,j,k0+1)
+    BxR = this%Bx(i,j,k0+1) - half * delta(delta_minus, delta_plus)
+    ! y-axis Magnetic Field
+    delta_minus = this%By(i,j,k0) - this%By(i,j,k0-1)
+    delta_plus  = this%By(i,j,k0+1) - this%By(i,j,k0)
+    ByL = this%By(i,j,k0) + half * delta(delta_minus, delta_plus)
+
+    delta_minus = this%By(i,j,k0+1) - this%By(i,j,k0)
+    delta_plus  = this%By(i,j,k0+2) - this%By(i,j,k0+1)
+    ByR = this%By(i,j,k0+1) - half * delta(delta_minus, delta_plus)
+    ! z-axis Magnetic Field
+    delta_minus = this%Bz(i,j,k0) - this%Bz(i,j,k0-1)
+    delta_plus  = this%Bz(i,j,k0+1) - this%Bz(i,j,k0)
+    BzL = this%Bz(i,j,k0) + half * delta(delta_minus, delta_plus)
+
+    delta_minus = this%Bz(i,j,k0+1) - this%Bz(i,j,k0)
+    delta_plus  = this%Bz(i,j,k0+2) - this%Bz(i,j,k0+1)
+    BzR = this%Bz(i,j,k0+1) - half * delta(delta_minus, delta_plus)
     ! energy
     delta_minus = this%e(i,j,k0) - this%e(i,j,k0-1)
     delta_plus  = this%e(i,j,k0+1) - this%e(i,j,k0)
