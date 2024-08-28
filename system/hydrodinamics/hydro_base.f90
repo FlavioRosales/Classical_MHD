@@ -22,6 +22,7 @@ module hydro_base_lib
     real(kind=8) :: gamma, floor, K_poly
 
     real(kind=8), allocatable, dimension(:,:,:) :: rho, vx, vy, vz, e, p, V
+    real(kind=8), allocatable, dimension(:,:,:) :: rhs_Bx, rhs_By, rhs_Bz
     real(kind=8), allocatable, dimension(:,:,:,:) :: u, u_p, Fx, Fy, Fz, S
 
     character(len=:), allocatable :: EoS, flux_formula, boundary
@@ -40,6 +41,7 @@ module hydro_base_lib
     procedure :: HLLE_x, HLLE_y, HLLE_z
     procedure :: MARQUINA_x, MARQUINA_y, MARQUINA_z
     procedure :: rhs_hydro
+    procedure :: flux_CT
     procedure :: evolve
     procedure :: boundary_isolated
 
@@ -51,16 +53,19 @@ contains
     implicit none
     class(hydro_base), intent(in out) :: this
 
-    allocate(this% rho(domain%Nx, domain%Ny, domain%Nz))
-    allocate(this%  vx(domain%Nx, domain%Ny, domain%Nz))
-    allocate(this%  vy(domain%Nx, domain%Ny, domain%Nz))
-    allocate(this%  vz(domain%Nx, domain%Ny, domain%Nz))
-    allocate(this%  Bx(domain%Nx, domain%Ny, domain%Nz))
-    allocate(this%  By(domain%Nx, domain%Ny, domain%Nz))
-    allocate(this%  Bz(domain%Nx, domain%Ny, domain%Nz))
-    allocate(this%   e(domain%Nx, domain%Ny, domain%Nz))
-    allocate(this%   p(domain%Nx, domain%Ny, domain%Nz))
-    allocate(this%   V(domain%Nx, domain%Ny, domain%Nz))
+    allocate(this%   rho(domain%Nx, domain%Ny, domain%Nz))
+    allocate(this%    vx(domain%Nx, domain%Ny, domain%Nz))
+    allocate(this%    vy(domain%Nx, domain%Ny, domain%Nz))
+    allocate(this%    vz(domain%Nx, domain%Ny, domain%Nz))
+    allocate(this%    Bx(domain%Nx, domain%Ny, domain%Nz))
+    allocate(this%    By(domain%Nx, domain%Ny, domain%Nz))
+    allocate(this%    Bz(domain%Nx, domain%Ny, domain%Nz))
+    allocate(this%     e(domain%Nx, domain%Ny, domain%Nz))
+    allocate(this%     p(domain%Nx, domain%Ny, domain%Nz))
+    allocate(this%     V(domain%Nx, domain%Ny, domain%Nz))
+    allocate(this%rhs_Bx(domain%Nx, domain%Ny, domain%Nz))
+    allocate(this%rhs_By(domain%Nx, domain%Ny, domain%Nz))
+    allocate(this%rhs_Bz(domain%Nx, domain%Ny, domain%Nz))
 
     allocate(this%    u(8, domain%Nx, domain%Ny, domain%Nz))
     allocate(this%  u_p(8, domain%Nx, domain%Ny, domain%Nz))
@@ -236,9 +241,9 @@ contains
     implicit none
     class(hydro_base), intent(in out) :: this
     real(kind=8) :: &
-    dFx(5, domain%Nx, domain%Ny, domain%Nz), &
-    dFy(5, domain%Nx, domain%Ny, domain%Nz), &
-    dFz(5, domain%Nx, domain%Ny, domain%Nz)
+    dFx(8, domain%Nx, domain%Ny, domain%Nz), &
+    dFy(8, domain%Nx, domain%Ny, domain%Nz), &
+    dFz(8, domain%Nx, domain%Ny, domain%Nz)
 
     integer :: k
 
@@ -249,6 +254,7 @@ contains
     do k=1, 5
       dFx(k,:,:,:) = transpose_y_to_x(dFx(k,:,:,:))
     end do
+    
     !this%S = this%S - dF
 
     dFy(:,:,:,1) = (this%Fy(:,:,:,1) - this%Fy(:,:,:,domain%Nz)) / domain%dy
@@ -870,6 +876,64 @@ contains
 
 
   end subroutine reconstructor
+  !============================================================================!
+  subroutine flux_CT(this)
+    implicit none
+    class(hydro_base), intent(in out) :: this
+    integer :: i,j,k
+    real(kind=8), dimension(domain%Nx, domain%Ny, domain%Nz) :: Omega_x, Omega_y, Omega_z
+
+    do i=1, domain%Nx 
+      do j=1, domain%Ny - 1
+        do k=1, domain%Nz - 1
+          Omega_x(i,j,k) = 0.25d0*( this%Fy(8,i,j,k) +  this%Fy(8,i,j,k+1) &
+           -  this%Fz(7,i,j,k) -  this%Fz(7,i,j+1,k) )
+        end do
+      end do
+    end do 
+    do i=1, domain%Nx -1
+      do j=1, domain%Ny 
+        do k=1, domain%Nz - 1
+          Omega_y(i,j,k) = 0.25d0*( this%Fz(6,i,j,k) + this%Fz(6,i+1,j,k) &
+          - this%Fx(8,i,j,k) - this%Fx(8,i,j,k+1))
+        end do
+      end do
+    end do 
+    do i=1, domain%Nx -1
+      do j=1, domain%Ny - 1
+        do k=1, domain%Nz 
+          Omega_z(i,j,k) = 0.25d0*( this%Fx(7,i,j,k) + this%Fx(7,i,j+1,k) &
+          - this%Fy(6,i,j,k) - this%Fy(6,i+1,j,k) )
+        end do
+      end do
+    end do
+
+    do i=1, domain%Nx -1
+      do j=2, domain%Ny - 1
+        do k=2, domain%Nz - 1
+          this%rhs_Bx(i,j,k) = &
+           ((Omega_z(i,j,k) - Omega_z(i,j-1,k))/domain%dy - (Omega_y(i,j,k)-Omega_y(i,j,k-1))/domain%dz)
+        end do
+      end do
+    end do 
+    do i=2, domain%Nx -1
+      do j=1, domain%Ny - 1
+        do k=2, domain%Nz - 1
+          this%rhs_By(i,j,k) = &
+            (Omega_x(i,j,k) - Omega_x(i,j,k-1))/domain%dz - (Omega_z(i,j,k)-Omega_z(i-1,j,k))/domain%dx
+        end do
+      end do
+    end do 
+    do i=2, domain%Nx -1
+      do j=2, domain%Ny - 1
+        do k=1, domain%Nz - 1
+          this%rhs_Bz(i,j,k) = &
+            (Omega_y(i,j,k) - Omega_y(i-1,j,k))/domain%dx - (Omega_x(i,j,k)-Omega_x(i,j-1,k))/domain%dy
+        end do
+      end do
+    end do 
+
+  end subroutine
   !============================================================================!
   subroutine MINMOD_periodic(this,i,j,k)
     implicit none
